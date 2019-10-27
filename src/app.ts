@@ -1,5 +1,7 @@
 require('tsconfig-paths').register()
 
+require('dotenv').config()
+
 import * as Hapi from 'hapi'
 
 import healthCheck from 'src/health-check/health-check'
