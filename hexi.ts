@@ -43,7 +43,7 @@ export default class Hexi<C> {
         this.app = app
     }
 
-    async listen(options: Deno.ListenOptions | Deno.ListenTlsOptions = { hostname: 'localhost', port: 8000 }) {
+    async listen(options: Deno.ListenOptions | Deno.ListenTlsOptions = { hostname: 'localhost', port: 80 }) {
         const s = serve(options)
         console.log(`http${'certFile' in options ? 's' : ''}://${options.hostname || '0.0.0.0'}:${options.port}`)
 

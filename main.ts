@@ -23,4 +23,4 @@ const app = new Hexi<Context>((ctx) => Promise.resolve({ db: ctx.db ?? new DB() 
         },
     }
 })
-await app.listen()
+await app.listen({ hostname: 'localhost', port: parseInt(Deno.args[0] || '80', 10) })
