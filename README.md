@@ -1,0 +1,38 @@
+Roadmap
+
+- [ ] Declarative API
+- [ ] Declarative CRUDL
+- [ ] Hexi command
+- [ ] Mandatory RBAC Permissions
+- [ ] Audit Logs
+- [ ] Feature flags at each layer
+- [ ] A|B Testing at each layer
+- [ ] Remote reconfiguration
+- [ ] Organization Auth
+  - [ ] SSO Auth
+  - [ ] OIDC Auth
+- [ ] Auto Caching
+  - [ ] Local
+  - [ ] Connectors for Memcached
+  - [ ] Connectors for Redis
+- [ ] Event pusher
+- [ ] Anonymizers
+- [ ] Storage
+  - [ ] Auto blob storage
+  - [ ] Soft Delete
+  - [ ] Retention Policy Metadata
+- [ ] Encryption at rest
+  - [ ] AES GCM
+  - [ ] Cloud KMS
+- [ ] CLI connector
+- [ ] From Spec file with nested references
+  - [ ] YAML
+  - [ ] JSON
+- [ ] Strictly TLS
+  - [ ] Self Signed with easy local dev support
+  - [ ] Lets Encrypt
+  - [ ] Cert Manger
+- [ ] Deployment
+  - [ ] Kubernetes
+  - [ ] Terraform
+  
