@@ -1,4 +1,7 @@
 import { serve, ServerRequest, Response } from 'https://deno.land/std@0.69.0/http/server.ts'
+import * as YAML from 'https://deno.land/std@0.69.0/encoding/yaml.ts'
+import * as TOML from 'https://deno.land/std@0.69.0/encoding/toml.ts'
+import * as CSV from 'https://deno.land/std@0.69.0/encoding/csv.ts'
 
 type Middleware<C> = (context: Readonly<C>, request: Readonly<ServerRequest>) => Promise<C>
 
@@ -13,10 +16,12 @@ interface CommonConfig<C> {
     middleware?: Middleware<C>[]
 }
 
+type EndpointType = 'json' | 'yaml' | 'toml' | 'csv'
+
 interface Endpoint<C> {
     middleware?: Middleware<C>[]
     handler: Handler<C>
-    type?: 'json'
+    type?: EndpointType
 }
 
 interface EndpointSet<C> {
@@ -88,6 +93,17 @@ export default class Hexi<C> {
             let body
             const headers = new Headers([])
             switch (method.type) {
+                // case 'csv':
+                //     headers.append('content-type', 'text/csv')
+                //     body = Array.isArray(reply.response) ? reply.response.
+                case 'yaml':
+                    headers.append('content-type', 'application/x-yaml')
+                    body = YAML.stringify(reply.response)
+                    break
+                case 'toml':
+                    headers.append('content-type', 'application/x-toml')
+                    body = TOML.stringify(reply.response)
+                    break
                 case 'json':
                 case undefined:
                 case null:
@@ -96,6 +112,7 @@ export default class Hexi<C> {
                     break
                 default:
                     headers.append('content-type', method.type)
+                    body = reply.response
             }
 
             const fullResponse: Response = {
