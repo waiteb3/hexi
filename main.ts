@@ -7,14 +7,32 @@ class DB {
     }
 }
 
-interface Context {
-    db: DB
+class Context {
+    private _db?: DB
+    readonly start: number
+
+    constructor() {
+        this.start = Date.now()
+    }
+
+    get db() {
+        if (!this._db) {
+            this._db = new DB()
+        }
+        return this._db
+    }
 }
 
-const app = new Hexi<Context>((ctx) => Promise.resolve({ db: ctx.db ?? new DB() }), {
-    common: {},
+const app = new Hexi<Context>((ctx) => Promise.resolve(new Context()), {
+    common: {
+        hooks: [
+            (ctx, req, res) => {
+                console.log(Date.now() - ctx.start, 'ms')
+            }
+        ]
+    },
     routes: {
-        'Root': {
+        '/': {
             get: {
                 async handler(ctx, request) {
                     return { response: ctx.db.get('1') }

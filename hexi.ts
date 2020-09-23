@@ -1,32 +1,35 @@
 import { serve, ServerRequest, Response } from 'https://deno.land/std@0.69.0/http/server.ts'
-import * as YAML from 'https://deno.land/std@0.69.0/encoding/yaml.ts'
-import * as TOML from 'https://deno.land/std@0.69.0/encoding/toml.ts'
-import * as CSV from 'https://deno.land/std@0.69.0/encoding/csv.ts'
+
+import marshallers, { Reply, Marshaller } from './marshallers.ts'
 
 type Middleware<C> = (context: Readonly<C>, request: Readonly<ServerRequest>) => Promise<C>
 
-type Reply = {
-    status?: number
-    response: any
-}
-
 type Handler<C> = (context: Readonly<C>, request: Readonly<ServerRequest>) => Promise<Reply>
 
+type Hook<C> = (context: Readonly<C>, request: Readonly<ServerRequest>, response: Readonly<Response>) => void
+
+type EndpointType = 'json' | 'yaml' | 'toml'
+
 interface CommonConfig<C> {
+    type?: EndpointType
     middleware?: Middleware<C>[]
+    hooks?: Hook<C>[]
 }
 
-type EndpointType = 'json' | 'yaml' | 'toml' | 'csv'
-
 interface Endpoint<C> {
+    name?: string // TODO ensure unique
     middleware?: Middleware<C>[]
     handler: Handler<C>
-    type?: EndpointType
+    hooks?: Hook<C>[]
 }
 
 interface EndpointSet<C> {
+    name?: string
+    // TODO options
     get?: Endpoint<C>
+    put?: Endpoint<C>
     post?: Endpoint<C>
+    patch?: Endpoint<C>
     delete?: Endpoint<C>
 }
 
@@ -34,7 +37,7 @@ type Importable = unknown
 
 interface EndpointTree<C> {
     common: CommonConfig<C>
-    readonly routes: { [name: string]: EndpointSet<C> }
+    readonly routes: { [path: string]: EndpointSet<C> }
 }
 
 type Contextualizer<C> = (ctx: Partial<C>) => Promise<C>
@@ -59,25 +62,38 @@ function banner(hostname: string) {
 export default class Hexi<C> {
     contextualizer: Contextualizer<C>
     app: EndpointTree<C>
+    marshaller: Marshaller
 
     constructor(contextualizer: Contextualizer<C>, app: EndpointTree<C>) {
         this.contextualizer = contextualizer
         this.app = app
+        this.marshaller = marshallers[app.common.type || 'json']
     }
 
     async listen(options: Deno.ListenOptions | Deno.ListenTlsOptions = { hostname: 'localhost', port: 80 }) {
-        const s = serve(options)
-        console.log(`http${'certFile' in options ? 's' : ''}://${options.hostname || '0.0.0.0'}:${options.port}`)
+        const server = serve(options)
+        const hostname = `http${'certFile' in options ? 's' : ''}://${options.hostname || '0.0.0.0'}:${options.port}`
 
-        for await (const req of s) {
-            const route = this.app.routes['Root']
-            let ctx = await this.contextualizer({})
+        banner(hostname)
 
-            let err: Error | null = null
-            
-            const methodName = req.method.toLowerCase() as keyof EndpointSet<C>
-            if (!(methodName in route)) {
-                req.respond({
+        for await (const request of server) {
+            const route = this.app.routes[request.url]
+
+            const methodName = request.method.toLowerCase()
+            if (methodName != 'get' &&
+                methodName != 'put' &&
+                methodName != 'post' &&
+                methodName != 'patch' &&
+                methodName != 'delete') {
+                request.respond({
+                    body: 'Method Not Allowed',
+                    status: 405,
+                })
+                continue
+            }
+
+            if (!route || !(methodName in route)) {
+                request.respond({
                     body: 'Not Found',
                     status: 404,
                 })
@@ -86,60 +102,51 @@ export default class Hexi<C> {
 
             const method = route[methodName]
             if (!method) {
-                req.respond({
+                request.respond({
                     body: 'Not Found',
                     status: 404,
                 })
                 continue
             }
 
+            const requestID = Math.random().toString().split('.')[1]
+            const name = `${route.name || request.url}:${method.name || methodName}`
+            console.log(`Request=${requestID} in context=${name}`)
+
+            let ctx = await this.contextualizer({ /* TODO contextual logging */ })
+
             if (this.app.common.middleware) {
                 for (const middleware of this.app.common.middleware) {
-                    ctx = await middleware(ctx, req)
-                }        
+                    ctx = await middleware(ctx, request)
+                }
             }
 
             if (method.middleware) {
                 for (const middleware of method.middleware) {
-                    ctx = await middleware(ctx, req)
+                    ctx = await middleware(ctx, request)
                 }
             }
 
-            const reply = await method.handler(ctx, req)
+            const reply = await method.handler(ctx, request)
 
-            let body
-            const headers = new Headers([])
-            switch (method.type) {
-                // case 'csv':
-                //     headers.append('content-type', 'text/csv')
-                //     body = Array.isArray(reply.response) ? reply.response.
-                case 'yaml':
-                    headers.append('content-type', 'application/x-yaml')
-                    body = YAML.stringify(reply.response)
-                    break
-                case 'toml':
-                    headers.append('content-type', 'application/x-toml')
-                    body = TOML.stringify(reply.response)
-                    break
-                case 'json':
-                case undefined:
-                case null:
-                    headers.append('content-type', 'application/json')
-                    body = JSON.stringify(reply.response)
-                    break
-                default:
-                    headers.append('content-type', method.type)
-                    body = reply.response
+            const response = {
+                ...this.marshaller.marshall(reply),
+                status: reply.status,
             }
 
-            const fullResponse: Response = {
-                body: body,
-                headers,
+            await request.respond(response)
+
+            if (method.hooks) {
+                for (const hook of method.hooks) {
+                    await hook(ctx, request, response)
+                }
             }
 
-            console.log(fullResponse)
-
-            await req.respond(fullResponse)
+            if (this.app.common.hooks) {
+                for (const hook of this.app.common.hooks) {
+                    await hook(ctx, request, response)
+                }
+            }
         }
     }
 }
