@@ -39,6 +39,23 @@ interface EndpointTree<C> {
 
 type Contextualizer<C> = (ctx: Partial<C>) => Promise<C>
 
+function banner(hostname: string) {
+    const banner = `⬡ ⬢ Listening on ${hostname} ⬢ ⬡`
+    const padding = ' '.repeat((banner.length - '██   ██ ███████ ██   ██ ██'.length) / 2)
+    const hexi = [
+        '██   ██ ███████ ██   ██ ██',
+        '██   ██ ██       ██ ██  ██',
+        '███████ █████     ███   ██',
+        '██   ██ ██       ██ ██  ██',
+        '██   ██ ███████ ██   ██ ██',
+    ]
+    for (const h of hexi) {
+        console.log(padding + h)
+    }
+    console.log()
+    console.log(banner)
+}
+
 export default class Hexi<C> {
     contextualizer: Contextualizer<C>
     app: EndpointTree<C>
