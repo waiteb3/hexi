@@ -26,9 +26,12 @@ class Context {
 const app = new Hexi<Context>((ctx) => Promise.resolve(new Context()), {
     common: {
         hooks: [
-            (ctx, req, res) => {
+            (ctx) => {
                 console.log(Date.now() - ctx.start, 'ms')
-            }
+            },
+            () => {
+                throw new Error('test')
+            },
         ]
     },
     routes: {
@@ -43,4 +46,4 @@ const app = new Hexi<Context>((ctx) => Promise.resolve(new Context()), {
 })
 
 const host = new URL(Deno.args[0] || 'http://localhost:8000')
-await app.listen({ hostname: host.hostname, port: parseInt(host.port || '80') })
+await app.listen({ hostname: host.hostname, port: parseInt(host.port) })

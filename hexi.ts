@@ -70,83 +70,99 @@ export default class Hexi<C> {
         this.marshaller = marshallers[app.common.type || 'json']
     }
 
+    private async handle(request: ServerRequest) {
+        const methodName = request.method.toLowerCase()
+        if (methodName != 'get' &&
+            methodName != 'put' &&
+            methodName != 'post' &&
+            methodName != 'patch' &&
+            methodName != 'delete') {
+            request.respond({
+                body: 'Method Not Allowed',
+                status: 405,
+            })
+            return
+        }
+
+        const route = this.app.routes[request.url]
+        if (!route || !(methodName in route)) {
+            request.respond({
+                body: 'Not Found',
+                status: 404,
+            })
+            return
+        }
+
+        const method = route[methodName]
+        if (!method) {
+            request.respond({
+                body: 'Not Found',
+                status: 404,
+            })
+            return
+        }
+
+        const requestID = Math.random().toString().split('.')[1]
+        const name = `${route.name || request.url}:${method.name || methodName}`
+        console.log(`Request=${requestID} in context=${name}`)
+
+        let ctx = await this.contextualizer({ /* TODO contextual logging */ })
+
+        if (this.app.common.middleware) {
+            for (const middleware of this.app.common.middleware) {
+                ctx = await middleware(ctx, request)
+            }
+        }
+
+        if (method.middleware) {
+            for (const middleware of method.middleware) {
+                ctx = await middleware(ctx, request)
+            }
+        }
+
+        const reply = await method.handler(ctx, request)
+
+        const response = {
+            ...this.marshaller.marshall(reply),
+            status: reply.status,
+        }
+
+        if (method.hooks) {
+            for (const hook of method.hooks) {
+                await hook(ctx, request, response)
+            }
+        }
+
+        if (this.app.common.hooks) {
+            for (const hook of this.app.common.hooks) {
+                await hook(ctx, request, response)
+            }
+        }
+
+        // TODO need to think through handling completeness but a failure in a post step
+        await request.respond(response)
+    }
+
     async listen(options: Deno.ListenOptions | Deno.ListenTlsOptions = { hostname: 'localhost', port: 80 }) {
         const server = serve(options)
         const hostname = `http${'certFile' in options ? 's' : ''}://${options.hostname || '0.0.0.0'}:${options.port}`
 
         banner(hostname)
 
-        for await (const request of server) {
-            const route = this.app.routes[request.url]
-
-            const methodName = request.method.toLowerCase()
-            if (methodName != 'get' &&
-                methodName != 'put' &&
-                methodName != 'post' &&
-                methodName != 'patch' &&
-                methodName != 'delete') {
-                request.respond({
-                    body: 'Method Not Allowed',
-                    status: 405,
-                })
-                continue
-            }
-
-            if (!route || !(methodName in route)) {
-                request.respond({
-                    body: 'Not Found',
-                    status: 404,
-                })
-                continue
-            }
-
-            const method = route[methodName]
-            if (!method) {
-                request.respond({
-                    body: 'Not Found',
-                    status: 404,
-                })
-                continue
-            }
-
-            const requestID = Math.random().toString().split('.')[1]
-            const name = `${route.name || request.url}:${method.name || methodName}`
-            console.log(`Request=${requestID} in context=${name}`)
-
-            let ctx = await this.contextualizer({ /* TODO contextual logging */ })
-
-            if (this.app.common.middleware) {
-                for (const middleware of this.app.common.middleware) {
-                    ctx = await middleware(ctx, request)
+        Promise.resolve().then(async() => {
+            for await (const request of server) {
+                try {
+                    await this.handle(request)
+                } catch(err) {
+                    // TODO if HexiError return msg & code
+                    console.log(err)
+                    request.respond({
+                        body: 'Internal Server Error',
+                        status: 500,
+                    })
                 }
             }
-
-            if (method.middleware) {
-                for (const middleware of method.middleware) {
-                    ctx = await middleware(ctx, request)
-                }
-            }
-
-            const reply = await method.handler(ctx, request)
-
-            const response = {
-                ...this.marshaller.marshall(reply),
-                status: reply.status,
-            }
-
-            await request.respond(response)
-
-            if (method.hooks) {
-                for (const hook of method.hooks) {
-                    await hook(ctx, request, response)
-                }
-            }
-
-            if (this.app.common.hooks) {
-                for (const hook of this.app.common.hooks) {
-                    await hook(ctx, request, response)
-                }
-            }
-        }
+        })
+        return server
     }
 }
