@@ -1,0 +1,9 @@
+server:
+  listen:
+    host: localhost
+    port: 8000
+
+objects:
+  # todo enforce things
+  Organization:
+    
