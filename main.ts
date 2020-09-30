@@ -1,5 +1,5 @@
 import * as YAML from 'https://deno.land/std@0.69.0/encoding/yaml.ts'
-import Hexi from "./hexi.ts"
+import Hexi from './hexi.ts'
 
 await new Hexi({
     server: {
@@ -10,20 +10,12 @@ await new Hexi({
     },
     objects: {
         // # todo enforce things
-        Organization: {
+        Photo: {
 	    fields: {
                 name: {
                     type: 'text', 
                 },
 	    },
         },
-        Role: {
-	    fields: {
-                name: {
-                    type: 'text', 
-                },
-	    },
-        },
-        
     },
 }).listen()

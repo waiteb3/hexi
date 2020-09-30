@@ -8,8 +8,8 @@ import {
 } from 'https://raw.githubusercontent.com/adelsz/graphql-deno/v15.0.0/mod.ts'
 import { DB } from 'https://deno.land/x/sqlite/mod.ts'
 
-// const db = new DB('test.db')
-const db = new DB()
+const db = new DB('test.db')
+// const db = new DB()
 
 function banner(hostname: string) {
     const banner = `⬡ ⬢ Listening on ${hostname} ⬢ ⬡`
@@ -36,13 +36,14 @@ type ModelField = {
     validation?: Validation[]
 } | {
     kind: 'ref'
-    ref: Model | Model
-    type?: 'child' | 'list' | 'parent'
+    ref: Model
 }
+
+type StorageHistoryMode = 'default' | 'archive' | 'append-only'
 
 interface Model {
     fields: { [name: string]: ModelField }
-    kind?: 'default' | 'append-only' 
+    kind?: StorageHistoryMode
 }
 
 interface AppTree<C> {
@@ -52,11 +53,155 @@ interface AppTree<C> {
     objects: { [name: string]: Model }
 }
 
+type StorageFieldTypes = {
+    storageType: 'id'
+    apiType: 'ID'
+} | {
+    storageType: 'text'
+    apiType: 'String'
+} | {
+    storageType: 'blob'
+    apiType: 'String'
+} | {
+    storageType: 'int'
+    apiType: 'Int'
+} | {
+    storageType: 'decimal'
+    apiType: 'Float'
+}
+
+type StorageField = StorageFieldTypes & ({
+    kind: 'column'
+    column: string
+} | {
+    kind: 'ref'
+    ref: string
+})
+
+// org<:orgid>:administrate
+// org:<:orgid>:(read|write)
+
+const defaultModels: { [name: string]: Model } = {
+    Organization: {
+	fields: {
+            name: {
+                 type: 'text', 
+            },
+        },
+    },
+}
+
+const associatedFields: { [name: string]: ModelField } = {
+    id: {
+        type: 'text',
+    },
+    organization: {
+        kind: 'ref',
+        ref: defaultModels.Organization,
+    },
+}
+
 class Registry {
     name: string
+    model: Model
+    fields: StorageField[]
 
-    constructor(name: string) {
+    constructor(name: string, model: Model) {
         this.name = name
+        this.model = model
+
+        this.fields = [{
+            kind: 'column',
+            column: 'id',
+            apiType: 'ID',
+            storageType: 'id',
+        }]
+        
+        const fields = Object.keys(model.fields).map((k): StorageField => {
+            const field = model.fields[k]
+
+            switch (field.kind) {
+                default:
+                case 'field': switch (field.type) {
+                    default: // TODO err on default
+                    case 'text': return {
+                        kind: 'column',
+                        column: k,
+                        storageType: 'text',
+                        apiType: 'String',
+                    }
+                    case 'blob': return {
+                        kind: 'column',
+                        column: k,
+                        storageType: 'text',
+                        apiType: 'String',
+                    }
+                    case 'int': return {
+                        kind: 'column',
+                        column: k,
+                        storageType: 'int',
+                        apiType: 'Int',
+                    }
+                    case 'decimal': return {
+                        kind: 'column',
+                        column: k,
+                        storageType: 'decimal',
+                        apiType: 'Float',
+                    }
+                    case 'datetime': return {
+                        kind: 'column',
+                        column: k,
+                        storageType: 'text',
+                        apiType: 'String',
+                    }
+                }
+                case 'ref': return {
+                    kind: 'ref',
+                    ref: k,
+                    storageType: 'text',
+                    apiType: k,
+                }
+            }
+        })
+
+        this.fields.push(...fields)
+    }
+    
+    syncStorage() {
+        const rows = [...db.query(`PRAGMA table_info(${this.name})`)]
+
+        db.query(`CREATE TABLE IF NOT EXISTS ${this.name} (
+            id CHAR(16) PRIMARY KEY
+        )`)
+
+        console.log(this.fields)
+        // TODO reverse and add option to drop columns via a tool
+        for (const field of this.fields) {
+            if (field.column == 'id') {
+                continue
+            }
+
+            const metadata = rows.find(row => row.column)
+            if (metadata) {
+                continue
+            }
+
+            switch (field.kind) {
+            case 'column':
+            default:
+                db.query(`ALTER TABLE ${this.name} ADD COLUMN ${field.column} ${field.storageType}`)
+            case 'ref':
+                db.query(`ALTER TABLE ${this.name} ADD COLUMN ${field.ref.name}_id ${field.storageType} REFERENCES ${field.ref.name}(id)`)
+            }
+        }
+    }
+
+    getQueries() {
+
+    }
+
+    getMutations() {
+
     }
 
     get(id: string) {
@@ -86,44 +231,31 @@ type Ref = { id: string }
 export default class Hexi<C> {
     app: AppTree<C>
     schema: GraphQLSchema
-    resolvers: { [name: string]: (query: Ref) => Promise<any> }
     registry: { [name: string]: Registry }
+    // mutationResolvers: { [name: string]: (query: Ref) => Promise<any> }
+    // queryResolvers: { [name: string]: (query: Ref) => Promise<any> }
+    resolvers: { [name: string]: (query: Ref) => Promise<any> }
 
     constructor(app: AppTree<C>) {
         this.app = app
+        this.registry = {}
+        this.resolvers = {}
         
         for (const name in app.objects) {
             // TODO always to lower things to discourage schenanigans?
-            // TODO sanitize
-            const obj: any = {}
-            const fields = app.objects[name].fields
-            db.query(`CREATE TABLE IF NOT EXISTS ${name} (
-                id CHAR(16) PRIMARY KEY
-            )`)
-
-            for (const field in fields) {
-                if (field == 'id') {
-                    continue
-                }
-                
-                // TODO references & nullability
-                const { type } = fields[field]
-                db.query(`ALTER TABLE ${name} ADD COLUMN ${field} ${type || 'text'}`)
-            }
+            // TODO sanitize name
+            this.registry[name] = new Registry(name, app.objects[name])
         }
 
-        const rows = db.query(`
-            SELECT name, sql FROM sqlite_master
-            WHERE type='table'
-            ORDER BY name`
-        )
-        for (const row of rows) {
-            console.log(row)
+        for (const name in this.registry) {
+            console.log('Syncing schema for ' + name)
+            const model = this.registry[name]
+            model.syncStorage()
         }
 
         let schema = ''
 
-	schema += 'type Query {\n'
+        schema += 'type Query {\n'
         for (const name in app.objects) {
             schema += `\tlist${name}: [${name}!]!\n`
             schema += `\tget${name}(id: String): ${name}\n`
@@ -155,22 +287,22 @@ export default class Hexi<C> {
         console.log(schema)
         this.schema = buildSchema(schema)
 
-        this.registry = {}
-        this.resolvers = {}
         for (const name in this.schema.getTypeMap()) {
             if (name === 'Query' || name === 'Mutation') {
                 continue
             }
             const type = this.schema.getTypeMap()[name]
             if (type.astNode) {
-                this.registry[name] = new Registry(name)
                 this.resolvers[`list${name}`] = async() => {
+                    console.log(name, this.registry[name])
                     return this.registry[name].listAll()
                 }
                 this.resolvers[`get${name}`] = async (query) => {
+                    console.log(name, this.registry[name])
                     return this.registry[name].get(query.id)
                 }
                 this.resolvers[`save${name}`] = async (params: any) => {
+                    console.log(name, this.registry[name])
                     const obj = this.registry[name].get(params.id)
                     if (obj) {
                         Object.assign(obj, params)
