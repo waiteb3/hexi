@@ -1,6 +1,6 @@
 import { DB } from 'https://deno.land/x/sqlite/mod.ts'
 
-import { Model, Ref, StorageField } from "./models.ts"
+import { Model, Ref, StorageField, StorageHistoryMode } from "./models.ts"
 
 // const db = new DB()
 const db = new DB('test.db')
@@ -11,11 +11,13 @@ export class Registry {
     name: string
     model: Model
     fields: StorageField[]
+    history: StorageHistoryMode
 
     constructor(name: string, model: Model) {
         this.db = db
         this.name = name
         this.model = model
+        this.history = model.kind || 'default'
 
         this.fields = [{
             kind: 'column',
@@ -78,7 +80,7 @@ export class Registry {
     syncStorage() {
         const rows = [...db.query(`PRAGMA table_info(${this.name})`).asObjects()]
 
-        db.query(`CREATE TABLE IF NOT EXISTS ${this.name} (id CHAR(16) PRIMARY KEY )`)
+        db.query(`CREATE TABLE IF NOT EXISTS ${this.name} (id CHAR(16) PRIMARY KEY NOT NULL)`)
 
         console.log(rows)
         // TODO reverse and add option to drop columns via a tool
@@ -114,6 +116,10 @@ export class Registry {
     }
 
     getQueries() {
+        if (this.history === 'private') {
+            return null
+        }
+
         return [
             // TODO queryable columns
             `find${this.name}: [${this.name}!]!`,
@@ -122,6 +128,10 @@ export class Registry {
     }
 
     getMutations() {
+        if (this.history === 'private') {
+            return null
+        }
+
         // TODO other types
         const types = this.fields.map((field) =>
             `${field.name}: ${field.apiType}` // TODO better refs
@@ -137,6 +147,15 @@ export class Registry {
             `${field.name}: ${field.kind === 'ref' ? field.ref : field.apiType}`
         )
         return `${def}\n\t${types.join('\n\t')}\n}`
+    }
+
+    async find(field: string, value: any) {
+        // TODO unsafe
+        // TODO consider loading all and erroring if not unique? or add concept of queryable fields of id | param for [1] | [..N]
+        const query = `SELECT * FROM ${this.name} WHERE ${field} = :value LIMIT 1`
+        console.log('QUERY:', query)
+        const [ obj ] = [...db.query(query, { value }).asObjects()]
+        return obj as Ref & object | null
     }
 
     async get(id: string) {
@@ -161,7 +180,11 @@ export class Registry {
         const id = Math.random().toString().slice(3)
         const keys = [ 'id' ]
         const values: { [key: string]: any } = { id }
-        for (const field of this.fields) {
+        for (const param of Object.keys(params)) {
+            const field = this.fields.find(field => field.name == param)
+            if (field == null) {
+                throw new Error('Undefined field ' + field)
+            }
             const key = field.kind == 'ref' ? `${field.name}_id` : field.name
             const value = field.kind == 'ref' ? params[field.name].id : params[field.name]
             keys.push(key)

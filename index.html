@@ -20,16 +20,18 @@
     ></script>
 
     <script>
+      const params = new URLSearchParams(location.search)
+      const token = params.get('token') || prompt('Session Token')
       const graphQLFetcher = graphQLParams =>
         fetch('http://localhost:8000/graphql', {
-          method: 'post',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
           body: JSON.stringify(graphQLParams),
         })
           .then(response => response.json())
           .catch(() => response.text());
       ReactDOM.render(
-        React.createElement(GraphiQL, { fetcher: graphQLFetcher }),
+        React.createElement(GraphiQL, { fetcher: graphQLFetcher,  }),
         document.getElementById('graphiql'),
       );
     </script>

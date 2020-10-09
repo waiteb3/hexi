@@ -5,12 +5,13 @@ interface GithubOAuth {
     type: 'github'
     client_id: string
     client_secret: string
+    token: string // TODO
 }
 
 type OAuthPlugins = GithubOAuth
 
 interface Secrets {
-    oauth: OAuthPlugins
+    auth: OAuthPlugins
 }
 
 export interface AppTree<C> {

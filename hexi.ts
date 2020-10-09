@@ -4,7 +4,6 @@ import {
     GraphQLSchema,
     buildSchema,
 } from 'https://raw.githubusercontent.com/adelsz/graphql-deno/v15.0.0/mod.ts'
-import { assert } from "https://deno.land/std@0.69.0/_util/assert.ts"
 
 import { defaults, Ref } from './models.ts'
 import { Registry } from './registry.ts'
@@ -26,6 +25,17 @@ function banner(hostname: string) {
     console.log(banner)
 }
 
+function fetchJSON<T=any>(url: string | Request | URL, init?: RequestInit) {
+    return fetch(url, init).then(async (res) => {
+        if (res.ok) {
+            return {
+                data: await res.json() as T,
+                response: res,
+            }
+        }
+        throw new Error(await res.text())
+    })
+}
 
 export default class Hexi<C> {
     app: AppTree<C>
@@ -62,13 +72,15 @@ export default class Hexi<C> {
 
         schema += 'type Query {\n'
         for (const name in this.registry) {
-            schema += this.registry[name].getQueries().map(q => '\t' + q).join('\n') + '\n'
+            const queries = this.registry[name].getQueries()
+            schema += queries ? queries.map(q => '\t' + q).join('\n') + '\n' : ''
         }
         schema += '}\n\n'
 
         schema += 'type Mutation {\n'
         for (const name in this.registry) {
-            schema += this.registry[name].getMutations().map(q => '\t' + q).join('\n') + '\n'
+            const queries = this.registry[name].getMutations()
+            schema += queries ? queries.map(q => '\t' + q).join('\n') + '\n' : ''
         }
         schema += '}\n\n'
 
@@ -117,6 +129,9 @@ export default class Hexi<C> {
     }
 
     private async handle(request: ServerRequest) {
+        const [path, query] = request.url.split('?', 2)
+        const queryParams = new URLSearchParams(query || '')
+
         const methodName = request.method.toLowerCase()
         if (methodName != 'get' &&
             methodName != 'put' &&
@@ -130,13 +145,117 @@ export default class Hexi<C> {
             return
         }
 
-        if (methodName === 'get' && request.url === '/') {
+        if (methodName === 'get' && path === '/') {
             const reply = await this.graphiql()
             await request.respond(reply)
             return
         }
 
-        if (request.url === '/favicon.ico') {
+        if (path === '/auth/github/install') {
+            const installation_id = queryParams.get('installation_id')
+            if (!installation_id) {
+                return request.respond({
+                    status: 500,
+                    body: 'Missing installation_id',
+                })    
+            }
+
+            const install = await fetchJSON(`https://api.github.com/app/installations/${installation_id}`, {
+                headers: {
+                    'Authorization': `Bearer ${this.app.server.secrets.auth.token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+            })
+
+            console.log(install.data)
+
+            const current = await this.registry.Organization.find('remote_id', install.data.id)
+            if (current) {
+                return request.respond({
+                    status: 200,
+                    body: 'Already Registered',
+                })
+            }
+
+            await this.registry.Organization.create({ kind: 'github', remote_id: install.data.id, name: install.data.account.login })
+            return request.respond({
+                status: 200,
+                body: 'Registered',
+            })
+        }
+
+        // TODO event recorder
+        if (path === '/auth/github/events') {
+            const rawBody = await Deno.readAll(request.body)
+            const decoder = new TextDecoder()
+            const rawJSON = decoder.decode(rawBody)
+            console.log(path, rawJSON)
+            const queryRaw = JSON.parse(rawJSON)
+            console.log(queryRaw)
+            console.log(queryParams?.toString())
+            return request.respond({
+                status: 200,
+                body: 'ok',
+            })
+        }
+
+        if (path === `/auth/github/login`) {
+            const url = `https://github.com/login/oauth/authorize?client_id=${this.app.server.secrets.auth.client_id}`
+            console.log("Sending to github", url)
+            await request.respond({
+                body: `Redirecting to OAuth Login Page for Github at ${url}`,
+                headers: new Headers([ ['Location', url] ]),
+                status: 302,
+            })
+            return
+        }
+
+        // TODO encapsulate & generify & routing
+        // TODO use state field for anti forgery
+        // TODO create account & go to org form via invite code
+        if (path === '/auth/github/callback') {
+            const body = [
+                [ 'client_id', this.app.server.secrets.auth.client_id ],
+                [ 'client_secret', this.app.server.secrets.auth.client_secret ],
+                [ 'code', queryParams.get('code') || '' ],
+            ]
+            console.log(path)
+            console.log(queryParams.toString(), body)
+
+            const query = new URLSearchParams(body)
+            const url = `https://github.com/login/oauth/access_token?${query.toString()}`
+            console.log(url)
+            type GHAccess = {
+                access_token: string
+            }
+            const authorization = await fetchJSON<GHAccess>(url, {
+                 method: 'POST',
+                 headers: { 'accept': 'application/json' }
+            })
+
+            // TODO anonymiser that print keys and shasum
+            console.log(authorization.data)
+            console.log(Array.from(authorization.response.headers.entries()))
+
+            // curl https://api.github.com/user -H 'accept: application/json' -H 'authorization: token
+            const user = await fetchJSON('https://api.github.com/user', {
+                headers: { 'authorization': `token ${authorization.data.access_token}`}
+            })
+            console.log(user.data)
+            console.log(Array.from(user.response.headers.entries()))
+
+            const root = `http://localhost:8000/?token=${authorization.data.access_token}`
+            console.log(root)
+
+            await request.respond({
+                body: `Redirecting to root`,
+                headers: new Headers([ ['Location', root] ]),
+                status: 302,
+            })
+            return
+        }
+
+        if (path === '/favicon.ico') {
             // console.log('/favicon.ico is TODO')
             await request.respond({
                 body: 'todo',
@@ -148,12 +267,13 @@ export default class Hexi<C> {
         const rawBody = await Deno.readAll(request.body)
         const decoder = new TextDecoder()
         const rawJSON = decoder.decode(rawBody)
+        console.log(path, rawJSON)
         const queryRaw = JSON.parse(rawJSON)
         console.log(queryRaw)
 
         const requestID = Math.random().toString().split('.')[1]
         // const name = `${route.name || request.url}:${method.name || methodName}`
-        console.log(`Request=${requestID} in context=${''}`)
+        console.log(`Request=${requestID} in context=${Array.from(request.headers.entries())}`)
 
         // let ctx = await this.contextualizer({ /* TODO contextual logging */ })
 

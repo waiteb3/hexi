@@ -2,4 +2,4 @@
 
 set -eo pipefail
 
-deno run --allow-net --allow-read --allow-write --allow-env main.ts
+TZ=UTC deno run --allow-net --allow-read --allow-write --allow-env main.ts

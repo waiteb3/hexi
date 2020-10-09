@@ -16,7 +16,7 @@ export type ModelField = {
     ref: Model | string
 }
 
-export type StorageHistoryMode = 'default' | 'archive' | 'append-only'
+export type StorageHistoryMode = 'default' | 'archive' | 'append-only' | 'private' | 'join'
 
 export type StorageFieldTypes = {
     storageType: 'id'
@@ -51,21 +51,75 @@ export type StorageField = (StorageFieldTypes & {
 // org:<:orgid>:(read|write)
 
 export const defaults: { [name: string]: Model } = {
-    Organization: {
+    Session: {
+        kind: 'private',
         fields: {
+            account: {
+                kind: 'ref',
+                ref: 'Account',
+            },
+            // TODO encrypted
+            token: {
+                type: 'text',
+            },
+        },
+    },
+    Organization: {
+        kind: 'private',
+        fields: {
+            kind: {
+                type: 'text', // TODO unique,
+            },
+            remote_id: {
+                type: 'text',
+            },
             name: {
                 type: 'text',
             },
         },
     },
     Account: {
+        kind: 'private',
         fields: {
             kind: {
                 type: 'text',
             },
-            reference: {
+            // TODO scrypted
+            // TODO private fields
+            credentials: {
                 type: 'text',
-            }
+            },
+        }
+    },
+    // TODO generate only read write admin roles
+    Roles: {
+        kind: 'append-only',
+        fields: {
+            name: {
+                type: 'text',
+            },
+            access: {
+                type: 'text',
+            },
+            // TODO consider switching to a list of actions as a proper array
+        }
+    },
+    // TODO account<->org<->role
+    OrganizationRoleBinding: {
+        kind: 'private',
+        fields: {
+            organization: {
+                kind: 'ref',
+                ref: 'Organization',
+            },
+            account: {
+                kind: 'ref',
+                ref: 'Account',
+            },
+            role: {
+                kind: 'ref',
+                ref: 'Role',
+            },
         }
     }
 }
