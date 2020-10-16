@@ -118,7 +118,7 @@ export const defaults: { [name: string]: Model } = {
             },
             role: {
                 kind: 'ref',
-                ref: 'Role',
+                ref: 'Roles',
             },
         }
     }

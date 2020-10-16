@@ -7,7 +7,10 @@ import {
 
 import { defaults, Ref } from './models.ts'
 import { Registry } from './registry.ts'
-import { AppTree, Reply } from "./server.ts"
+import { AppTree, PluginHandler, HexiReply, HexiContext, HexiRequest } from './server.ts'
+import { Router } from './router.ts'
+import { GraphQLArgs } from "https://raw.githubusercontent.com/adelsz/graphql-deno/v15.0.0/lib/graphql.d.ts"
+
 function banner(hostname: string) {
     const banner = `⬡ ⬢ Listening on ${hostname} ⬢ ⬡`
     const padding = ' '.repeat((banner.length - '██   ██ ███████ ██   ██ ██'.length) / 2)
@@ -37,14 +40,19 @@ function fetchJSON<T=any>(url: string | Request | URL, init?: RequestInit) {
     })
 }
 
+const decoder = new TextDecoder()
+
 export default class Hexi<C> {
     app: AppTree<C>
+    router: Router<PluginHandler<any, any, any>>
     schema: GraphQLSchema
     registry: { [name: string]: Registry }
     resolvers: { [name: string]: (query: Ref) => Promise<any> }
 
     constructor(app: AppTree<C>) {
         this.app = app
+        this.router = new Router(this.notFound)
+        this.router.use('', this.app.server.secrets.auth.router)
         this.registry = {}
         this.resolvers = {}
 
@@ -111,20 +119,28 @@ export default class Hexi<C> {
         }
     }
 
-    async graphiql(): Promise<Reply<string>> {
-        const index = await Deno.readTextFile('index.html')
+    notFound = async(): Promise<HexiReply<string>> => {
         return {
-            body: index,
-            status: 200,
+            body: 'Not Found',
+            http: {
+                action: 'not-found'
+            },
             type: 'html',
         }
     }
 
-    async graphql(query: any): Promise<Reply<any>> {
-        const obj = await graphql(this.schema, query, this.resolvers)
+    graphiql = async(): Promise<HexiReply<string>> => {
+        const index = await Deno.readTextFile('index.html')
+        return {
+            body: index,
+            type: 'html',
+        }
+    }
+
+    graphql = async(_: HexiContext, req: HexiRequest<{ query: string }>): Promise<HexiReply<any>> => {
+        const obj = await graphql(this.schema, req.body.query, this.resolvers)
         return {
             body: obj,
-            status: 200,
         }
     }
 
@@ -132,12 +148,12 @@ export default class Hexi<C> {
         const [path, query] = request.url.split('?', 2)
         const queryParams = new URLSearchParams(query || '')
 
-        const methodName = request.method.toLowerCase()
-        if (methodName != 'get' &&
-            methodName != 'put' &&
-            methodName != 'post' &&
-            methodName != 'patch' &&
-            methodName != 'delete') {
+        const methodName = request.method.toUpperCase()
+        if (methodName != 'GET' &&
+            methodName != 'PUT' &&
+            methodName != 'POST' &&
+            methodName != 'PATCH' &&
+            methodName != 'DELETE') {
             request.respond({
                 body: 'Method Not Allowed',
                 status: 405,
@@ -145,137 +161,26 @@ export default class Hexi<C> {
             return
         }
 
-        if (methodName === 'get' && path === '/') {
-            const reply = await this.graphiql()
-            await request.respond(reply)
-            return
-        }
+        this.router.get('/', this.graphiql)
+        this.router.post('/', this.graphql)
 
-        if (path === '/auth/github/install') {
-            const installation_id = queryParams.get('installation_id')
-            if (!installation_id) {
-                return request.respond({
-                    status: 500,
-                    body: 'Missing installation_id',
-                })    
-            }
-
-            const install = await fetchJSON(`https://api.github.com/app/installations/${installation_id}`, {
-                headers: {
-                    'Authorization': `Bearer ${this.app.server.secrets.auth.token}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                },
-            })
-
-            console.log(install.data)
-
-            const current = await this.registry.Organization.find('remote_id', install.data.id)
-            if (current) {
-                return request.respond({
-                    status: 200,
-                    body: 'Already Registered',
-                })
-            }
-
-            await this.registry.Organization.create({ kind: 'github', remote_id: install.data.id, name: install.data.account.login })
-            return request.respond({
-                status: 200,
-                body: 'Registered',
-            })
-        }
-
-        // TODO event recorder
-        if (path === '/auth/github/events') {
-            const rawBody = await Deno.readAll(request.body)
-            const decoder = new TextDecoder()
-            const rawJSON = decoder.decode(rawBody)
-            console.log(path, rawJSON)
-            const queryRaw = JSON.parse(rawJSON)
-            console.log(queryRaw)
-            console.log(queryParams?.toString())
-            return request.respond({
-                status: 200,
-                body: 'ok',
-            })
-        }
-
-        if (path === `/auth/github/login`) {
-            const url = `https://github.com/login/oauth/authorize?client_id=${this.app.server.secrets.auth.client_id}`
-            console.log("Sending to github", url)
-            await request.respond({
-                body: `Redirecting to OAuth Login Page for Github at ${url}`,
-                headers: new Headers([ ['Location', url] ]),
-                status: 302,
-            })
-            return
-        }
-
-        // TODO encapsulate & generify & routing
-        // TODO use state field for anti forgery
-        // TODO create account & go to org form via invite code
-        if (path === '/auth/github/callback') {
-            const body = [
-                [ 'client_id', this.app.server.secrets.auth.client_id ],
-                [ 'client_secret', this.app.server.secrets.auth.client_secret ],
-                [ 'code', queryParams.get('code') || '' ],
-            ]
-            console.log(path)
-            console.log(queryParams.toString(), body)
-
-            const query = new URLSearchParams(body)
-            const url = `https://github.com/login/oauth/access_token?${query.toString()}`
-            console.log(url)
-            type GHAccess = {
-                access_token: string
-            }
-            const authorization = await fetchJSON<GHAccess>(url, {
-                 method: 'POST',
-                 headers: { 'accept': 'application/json' }
-            })
-
-            // TODO anonymiser that print keys and shasum
-            console.log(authorization.data)
-            console.log(Array.from(authorization.response.headers.entries()))
-
-            // curl https://api.github.com/user -H 'accept: application/json' -H 'authorization: token
-            const user = await fetchJSON('https://api.github.com/user', {
-                headers: { 'authorization': `token ${authorization.data.access_token}`}
-            })
-            console.log(user.data)
-            console.log(Array.from(user.response.headers.entries()))
-
-            const root = `http://localhost:8000/?token=${authorization.data.access_token}`
-            console.log(root)
-
-            await request.respond({
-                body: `Redirecting to root`,
-                headers: new Headers([ ['Location', root] ]),
-                status: 302,
-            })
-            return
-        }
-
-        if (path === '/favicon.ico') {
-            // console.log('/favicon.ico is TODO')
-            await request.respond({
+        this.router.get('/favicon.ico', async() => {
+            return {
                 body: 'todo',
                 status: 500,
-            })
-            return
-        }
-
-        const rawBody = await Deno.readAll(request.body)
-        const decoder = new TextDecoder()
-        const rawJSON = decoder.decode(rawBody)
-        console.log(path, rawJSON)
-        const queryRaw = JSON.parse(rawJSON)
-        console.log(queryRaw)
-
-        const requestID = Math.random().toString().split('.')[1]
-        // const name = `${route.name || request.url}:${method.name || methodName}`
-        console.log(`Request=${requestID} in context=${Array.from(request.headers.entries())}`)
+            }
+        })
 
         // let ctx = await this.contextualizer({ /* TODO contextual logging */ })
+        const ctx: HexiContext = {
+            async logger(...args: any[]) {
+                console.log(args)
+            },
+            registry: this.registry,
+            config: {},
+        }
+        const requestID = Math.random().toString().split('.')[1]
+        ctx.logger(`Request=${requestID} in context=${path + ':' + methodName}`)
 
         // if (this.app.common.middleware) {
         //     for (const middleware of this.app.common.middleware) {
@@ -283,21 +188,59 @@ export default class Hexi<C> {
         //     }
         // }
 
-        const reply = await this.graphql(queryRaw.query)
-
-        const response = {
-            body: JSON.stringify(reply.body),
-            status: reply.status,
-        }
-
         // if (this.app.common.hooks) {
         //     for (const hook of this.app.common.hooks) {
         //         await hook(ctx, request, response)
         //     }
         // }
+        const bodyBytes = request.contentLength && request.contentLength > 0 ? await Deno.readAll(request.body) : null
+        const bodyRaw = bodyBytes ? decoder.decode(bodyBytes) : null
+        console.log(bodyRaw)
+
+        const accept = request.headers.get('accept')
+        const body = bodyRaw && accept?.includes('application/json') ? JSON.parse(bodyRaw) : bodyRaw
 
         // TODO need to think through handling completeness but a failure in a post step
-        await request.respond(response)
+        const handler = this.router.match(path, methodName)
+
+        const reply = await handler(ctx, { body, params: queryParams })
+        const headers = new Headers( [['X-Request-ID', requestID]] )
+
+        let status = 200
+
+        if (reply.http) switch (reply.http.action) {
+            case 'redirect': {
+                headers.append('Location', reply.http.url)
+                status = 302
+                break
+            }
+            case 'not-found': {
+                status = 404
+                break
+            }
+        }
+
+        switch (reply.type) {
+            default:
+            case 'json': {
+                headers.append('content-type', 'application/json')
+                await request.respond({
+                    body: JSON.stringify(reply.body),
+                    status,
+                    headers,
+                })
+                break
+            }
+            case 'html': {
+                headers.append('content-type', 'text/html')
+                await request.respond({
+                    body: reply.body.toString(),
+                    status,
+                    headers,
+                })
+                break
+            }
+        }
     }
 
     async listen() {
