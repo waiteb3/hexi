@@ -51,10 +51,21 @@ export default class Hexi<C> {
 
     constructor(app: AppTree<C>) {
         this.app = app
-        this.router = new Router(this.notFound)
-        this.router.use('', this.app.server.secrets.auth.router)
         this.registry = {}
         this.resolvers = {}
+
+        this.router = new Router(this.notFound)
+        this.router.use('/auth', this.app.server.secrets.auth.router)
+
+        this.router.get('/', this.graphiql)
+        this.router.post('/', this.graphql)
+
+        this.router.get('/favicon.ico', async() => {
+            return {
+                body: 'todo',
+                status: 500,
+            }
+        })
 
         for (const name in defaults) {
             this.registry[name] = new Registry(name, defaults[name])
@@ -160,16 +171,6 @@ export default class Hexi<C> {
             })
             return
         }
-
-        this.router.get('/', this.graphiql)
-        this.router.post('/', this.graphql)
-
-        this.router.get('/favicon.ico', async() => {
-            return {
-                body: 'todo',
-                status: 500,
-            }
-        })
 
         // let ctx = await this.contextualizer({ /* TODO contextual logging */ })
         const ctx: HexiContext = {

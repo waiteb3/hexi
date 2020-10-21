@@ -3,6 +3,7 @@ import Hexi from './hexi.ts'
 
 import { makeJwt, setExpiration, Jose, Payload } from 'https://deno.land/x/djwt/create.ts'
 import { GithubAppAuth } from './auth/github.ts'
+import { MagicAuth } from "./auth/magic.ts"
 
 const file = await Deno.stat('.env').catch((err) => err instanceof Deno.errors.NotFound ? null : Promise.reject(err))
 if (file) {
@@ -31,18 +32,18 @@ const header: Jose = {
 }
 const token = await makeJwt({ key, header, payload })
 
-await new Hexi({
+const server = new Hexi({
     server: {
         listen: {
             hostname: 'localhost',
             port: 8000,
         },
         secrets: {
-            auth: new GithubAppAuth({
+            auth: new MagicAuth({ mode: 'rsa' }) /*new GithubAppAuth({
                 client_id: Deno.env.get('GITHUB_APP_CLIENT_ID') || '',
                 client_secret: Deno.env.get('GITHUB_APP_CLIENT_SECRET') || '',
                 token,
-            }),
+            }),*/
         },
     },
     objects: {
@@ -59,4 +60,8 @@ await new Hexi({
             },
         },
     },
-}).listen()
+})
+
+console.log(server.router.routes)
+
+await server.listen().then(s => s.loop)

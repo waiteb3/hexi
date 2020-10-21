@@ -9,18 +9,39 @@ export class Router<H> {
         this.notFound = notFound
     }
 
+    private normalize(path: string) {
+        if (path.length == 1) {
+            return path
+        }
+        if (path.endsWith('/')) {
+            return path.slice(0, -1)
+        }
+        return path
+    }
+
     private from(path: string, method: string) {
-        return `${path}::${method.toUpperCase()}`
+        return `${this.normalize(path)}::${method.toUpperCase()}`
     }
 
     match(path: string, method: string): H {
-        const subroute = this.subroutes[path]
-        if (subroute) {
-            return subroute.match(path, method)
-        }
+        path = this.normalize(path)
         const match = this._routes[this.from(path, method)]
         if (match) {
             return match
+        }
+
+        const parts = path.split('/')
+        return this.submatch(parts.length, parts, method)
+    }
+
+    private submatch(depth: number, parts: string[], method: string): H {
+        const subpath = parts.slice(0, depth).join('/')
+        const subroute = this.subroutes[subpath]
+        if (subroute) {
+            return subroute.match('/' + parts.slice(depth).join('/'), method)
+        }
+        if (depth >= 0) {
+            return this.submatch(depth - 1, parts, method)
         }
         return this.notFound
     }
@@ -55,6 +76,14 @@ export class Router<H> {
     }
 
     get routes() {
-
+        const paths: string[] = []
+        for (const path in this._routes) {
+            paths.push(path)
+        }
+        for (const path in this.subroutes) {
+            const router = this.subroutes[path]
+            paths.push(...router.routes.map(r => path + r))
+        }
+        return paths
     }
 }
