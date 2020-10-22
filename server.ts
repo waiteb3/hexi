@@ -1,4 +1,3 @@
-import { ServerRequest } from "https://deno.land/std@0.69.0/http/server.ts"
 import { Model } from './models.ts'
 import { Auth } from './auth/auth.ts'
 import { Registry } from "./registry.ts"

@@ -1,4 +1,4 @@
-import { serve, ServerRequest, Response } from 'https://deno.land/std@0.69.0/http/server.ts'
+import { serve, ServerRequest } from 'https://deno.land/std@0.69.0/http/server.ts'
 import {
     graphql,
     GraphQLSchema,
@@ -9,7 +9,6 @@ import { defaults, Ref } from './models.ts'
 import { Registry } from './registry.ts'
 import { AppTree, PluginHandler, HexiReply, HexiContext, HexiRequest } from './server.ts'
 import { Router } from './router.ts'
-import { GraphQLArgs } from "https://raw.githubusercontent.com/adelsz/graphql-deno/v15.0.0/lib/graphql.d.ts"
 
 function banner(hostname: string) {
     const banner = `⬡ ⬢ Listening on ${hostname} ⬢ ⬡`
@@ -26,18 +25,6 @@ function banner(hostname: string) {
     }
     console.log()
     console.log(banner)
-}
-
-function fetchJSON<T=any>(url: string | Request | URL, init?: RequestInit) {
-    return fetch(url, init).then(async (res) => {
-        if (res.ok) {
-            return {
-                data: await res.json() as T,
-                response: res,
-            }
-        }
-        throw new Error(await res.text())
-    })
 }
 
 const decoder = new TextDecoder()
@@ -198,8 +185,8 @@ export default class Hexi<C> {
         const bodyRaw = bodyBytes ? decoder.decode(bodyBytes) : null
         console.log(bodyRaw)
 
-        const accept = request.headers.get('accept')
-        const body = bodyRaw && accept?.includes('application/json') ? JSON.parse(bodyRaw) : bodyRaw
+        const requestedType = request.headers.get('content-type') || request.headers.get('accept')
+        const body = bodyRaw && requestedType?.includes('application/json') ? JSON.parse(bodyRaw) : bodyRaw
 
         // TODO need to think through handling completeness but a failure in a post step
         const handler = this.router.match(path, methodName)

@@ -116,10 +116,6 @@ export class Registry {
     }
 
     getQueries() {
-        if (this.history === 'private') {
-            return null
-        }
-
         return [
             // TODO queryable columns
             `find${this.name}: [${this.name}!]!`,
@@ -177,7 +173,10 @@ export class Registry {
         //  null checks
         //  refs belong to org
         //  SHRT_guid ID format or composite keys of (id++, other)
-        const id = Math.random().toString().slice(3)
+        const idRandomness = new Uint8Array(16)
+        crypto.getRandomValues(idRandomness)
+        const id = idRandomness.reduce((memo, i) => memo + `0${i.toString(16)}`.slice(-2), '')
+
         const keys = [ 'id' ]
         const values: { [key: string]: any } = { id }
         for (const param of Object.keys(params)) {

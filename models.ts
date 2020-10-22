@@ -1,5 +1,4 @@
 // TODO don't export unnecessary things
-
 export interface Model {
     fields: { [name: string]: ModelField }
     kind?: StorageHistoryMode
@@ -7,10 +6,32 @@ export interface Model {
 
 export type Validation = string
 
+export interface FieldModifier<S, P, D> {
+    data: D
+    load(stored: S): Promise<P>
+    store(pre: P): Promise<S>
+}
+
+const StorageEncryptor: FieldModifier<string, string, { key: string }> = {
+    data: {
+        // TODO configurable, cloud KMSes
+        key: '<encrypted>',
+    },
+
+    async load(stored: string) {
+        return stored.slice(this.data.key.length + 1)
+    },
+
+    async store(pre: string) {
+        return `${this.data.key}:${pre}`
+    }
+}
+
 export type ModelField = {
     kind?: 'field'
-    type: 'text' | 'blob' | 'int' | 'decimal' | 'datetime'
+    type: 'text' | 'blob' | 'int' | 'decimal' | 'datetime' | 'boolean'
     validation?: Validation[]
+    modifiers?: FieldModifier<unknown, unknown, unknown>[]
 } | {
     kind: 'ref'
     ref: Model | string
@@ -33,6 +54,9 @@ export type StorageFieldTypes = {
 } | {
     storageType: 'decimal'
     apiType: 'Float'
+} | {
+    storageType: 'boolean',
+    apiType: 'Boolean',
 }
 
 // TODO instead of ref, have special columms like Creator, etc, that pull from assumed metadata
@@ -58,9 +82,9 @@ export const defaults: { [name: string]: Model } = {
                 kind: 'ref',
                 ref: 'Account',
             },
-            // TODO encrypted
             token: {
                 type: 'text',
+                modifiers: [StorageEncryptor],
             },
         },
     },
@@ -68,7 +92,7 @@ export const defaults: { [name: string]: Model } = {
         kind: 'private',
         fields: {
             kind: {
-                type: 'text', // TODO unique,
+                type: 'text',
             },
             remote_id: {
                 type: 'text',
@@ -84,10 +108,20 @@ export const defaults: { [name: string]: Model } = {
             kind: {
                 type: 'text',
             },
-            // TODO scrypted
-            // TODO private fields
-            credentials: {
+            contact: {
                 type: 'text',
+                modifiers: [StorageEncryptor],
+            },
+            // TODO private fields
+            reference_key: {
+                type: 'text',
+            },
+            reference_source: {
+                type: 'text',
+                modifiers: [StorageEncryptor],
+            },
+            confirmed: {
+                type: 'boolean',
             },
         }
     },

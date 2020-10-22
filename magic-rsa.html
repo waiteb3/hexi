@@ -1,0 +1,50 @@
+<html>
+    <body>
+        <p>Enter in your RSA PUBLIC Key. If you do not have one yet, you can follow these instructions. ENSURE THAT YOU BACK UP YOUR private.pem FILE</p>
+        <pre> openssl genrsa -des3 -out private.pem 2048 </pre>
+        <pre> openssl rsa -in private.pem -outform PEM -pubout -out public.pem </pre>
+        <p>Then enter your PUBLIC KEY in public.pem into the form</p>
+        <form onsubmit="sendpem(event)">
+            <p id="error"></p>
+            <label>PEM
+                <textarea
+                    id="pem-input"
+                    style="width: 50%"
+                    rows=20
+                    placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
+                ></textarea>
+            </label>
+            <button type="submit">Submit</button>
+        </form>
+        <p id="instructions"></p>
+        <script>
+            function sendpem(event) {
+                event.preventDefault()
+
+                const pem = document.querySelector("#pem-input")
+                const error = document.querySelector("#error")
+                const instructions = document.querySelector("#instructions")
+                if (!pem || !pem.value) {
+                    return false
+                }
+                fetch(document.location.toString(), {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        pem: pem.value,
+                    }),
+                    headers: new Headers({ 'content-type': 'application/json' }),
+                }).then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error(response.statusText)
+                    }
+                    const html = await response.text()
+                    instructions.innerHTML = html
+                }).catch((err) => {
+                    error.innerHTML = err.toString()
+                    error.style.visibility = 'default'
+                })
+                return false
+            }
+        </script>
+    </body>
+</html>
