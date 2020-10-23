@@ -21,10 +21,10 @@ export class GithubAppAuth implements Auth<Handler, GithubAppAuthConfig> {
         this._router = new Router({} as any)
         this.config = config
 
-        this.router.get('/auth/github/install', this.install)
+        this.router.get('/auth/github/install', { handler: this.install })
 
         // TODO generic event recorder
-        this.router.post('/auth/github/events', this.events)
+        this.router.post('/auth/github/events', { handler: this.events })
     }
 
     get token() {

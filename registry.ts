@@ -1,10 +1,16 @@
 import { DB } from 'https://deno.land/x/sqlite/mod.ts'
+import { ColumnName, Rows } from "https://deno.land/x/sqlite@v2.3.0/src/rows.ts"
 
 import { Model, Ref, StorageField, StorageHistoryMode } from "./models.ts"
 
 // const db = new DB()
 const db = new DB('test.db')
 db.query('PRAGMA foreign_keys = 1')
+
+function dump<T>(t: T): T {
+    console.log(t)
+    return t
+}
 
 export class Registry {
     db: DB
@@ -38,30 +44,42 @@ export class Registry {
                         name: k,
                         storageType: 'text',
                         apiType: 'String',
+                        modifiers: field.modifiers,
                     }
                     case 'blob': return {
                         kind: 'column',
                         name: k,
                         storageType: 'text',
                         apiType: 'String',
+                        modifiers: field.modifiers,
                     }
                     case 'int': return {
                         kind: 'column',
                         name: k,
                         storageType: 'int',
                         apiType: 'Int',
+                        modifiers: field.modifiers,
                     }
                     case 'decimal': return {
                         kind: 'column',
                         name: k,
                         storageType: 'decimal',
                         apiType: 'Float',
+                        modifiers: field.modifiers,
                     }
                     case 'datetime': return {
                         kind: 'column',
                         name: k,
                         storageType: 'text',
                         apiType: 'String',
+                        modifiers: field.modifiers,
+                    }
+                    case 'timestamp': return {
+                        kind: 'column',
+                        name: k,
+                        storageType: 'text',
+                        apiType: 'String',
+                        modifiers: field.modifiers,
                     }
                 }
                 case 'ref': return {
@@ -145,27 +163,71 @@ export class Registry {
         return `${def}\n\t${types.join('\n\t')}\n}`
     }
 
-    async find(field: string, value: any) {
+    async find(name: string, value: any) {
         // TODO unsafe
         // TODO consider loading all and erroring if not unique? or add concept of queryable fields of id | param for [1] | [..N]
-        const query = `SELECT * FROM ${this.name} WHERE ${field} = :value LIMIT 1`
+        const field = this.fields.find(field => field.name === name)
+        if (!field) {
+            throw new Error(`Field type '${name}' not found on model '${this.name}'`)
+        }
+        const query = `
+            SELECT ${this.fields.map(this.columnName)}
+            FROM ${this.name}
+            WHERE ${this.columnName(field)} = :value LIMIT 1
+        `
         console.log('QUERY:', query)
-        const [ obj ] = [...db.query(query, { value }).asObjects()]
-        return obj as Ref & object | null
+        value = await this.valueInto(field, value)
+        const rows = db.query(query, { value: field.kind === 'ref' ? value.id : value })
+        const [ obj ] = await this.mapObjects(rows)
+        return dump(obj)
+    }
+
+    async mapObjects(rows: Rows) {
+        let row = rows.next()
+        if (row.done) {
+            rows.return()
+            return []
+        }
+
+        const cols = this.fields.reduce((cols: { [key: string]: { field: StorageField, index: number }}, field, index) => {
+            cols[field.name] = { field, index }
+            return cols
+        },  {})
+
+        const objs = []
+        while (!row.done) {
+            const obj = {} as any
+            for (const col in cols) {
+                const column = cols[col]
+                if (column.field.kind === 'ref') {
+                    obj[col] = { id: row.value[column.index] }
+                } else {
+                    obj[col] = await this.fromRaw(column.field, row.value[column.index])
+                }
+            }
+            objs.push(obj)
+            row = rows.next()
+        }
+
+        rows.return()
+
+        return objs as (Ref & Object)[]
     }
 
     async get(id: string) {
-        const query = `SELECT * FROM ${this.name} WHERE id = :id`
-        console.log('QUERY:', query)
-        const [ obj ] = [...db.query(query, { id: id }).asObjects()]
-        return obj as Ref & object | null
+        const query = `SELECT ${this.fields.map(this.columnName)} FROM ${this.name} WHERE id = :id LIMIT 1`
+        console.log('QUERY:', query, id)
+        const rows = db.query(query, { id: id })
+        const [obj] = await this.mapObjects(rows)
+        return dump(obj)
     }
 
     async listAll() {
-        const query = `SELECT * FROM ${this.name}`
+        const query = `SELECT ${this.fields.map(this.columnName)} FROM ${this.name}`
         console.log('QUERY:', query)
-        const objs = [...db.query(query).asObjects()]
-        return objs as (Ref & object)[]
+        const rows = db.query(query)
+        const objs = await this.mapObjects(rows)
+        return dump(objs)
     }
 
     async create(params: any) {
@@ -184,10 +246,10 @@ export class Registry {
             if (field == null) {
                 throw new Error('Undefined field ' + field)
             }
-            const key = field.kind == 'ref' ? `${field.name}_id` : field.name
+            const key = this.columnName(field)
             const value = field.kind == 'ref' ? params[field.name].id : params[field.name]
             keys.push(key)
-            values[key] = value || null
+            values[key] = await this.valueInto(field, value) || null
         }
 
         const query = `INSERT INTO ${this.name} (
@@ -211,10 +273,10 @@ export class Registry {
                 continue
             }
 
-            const key = field.kind == 'ref' ? `${field.name}_id` : field.name
+            const key = this.columnName(field)
             const value = field.kind == 'ref' ? patch[field.name].id : patch[field.name]
             keys.push(key)
-            values[key] = value || null
+            values[key] = await this.valueInto(field, value) || null
         }
 
         const query = `UPDATE ${this.name} SET
@@ -224,5 +286,31 @@ export class Registry {
         db.query(query, { ...values, id: ref.id })
 
         return this.get(ref.id)
+    }
+
+    private async valueInto<T>(field: StorageField, value: T): Promise<T> {
+        if (field.kind == 'ref') {
+            return value
+        }
+
+        for (const modifier of field.modifiers || []) {
+            value = await modifier.store(value)
+        }
+        return value
+    }
+
+    private async fromRaw<T>(field: StorageField, raw: T): Promise<T> {
+        if (field.kind == 'ref') {
+            return raw
+        }
+
+        for (const modifier of field.modifiers?.slice().reverse() || []) {
+            raw = await modifier.load(raw)
+        }
+        return raw
+    }
+
+    private columnName(field: StorageField) {
+        return field.kind == 'ref' ? `${field.name}_id` : field.name
     }
 }

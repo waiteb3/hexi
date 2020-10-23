@@ -14,6 +14,8 @@ interface MagicAuthConfig {
 
 type Handler = PluginHandler<any, any, any>
 
+const handlerConfig = { public: true }
+
 export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
     _router: Router<Handler>
 
@@ -24,11 +26,12 @@ export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
         this._router = new Router({} as any)
         this.config = config
 
-        this.router.get('/magic/new-session', this.viewNewSession)
-        this.router.post('/magic/new-session', this.initNewSession)
+        // TODO org invites
+        this.router.get('/magic/new-session', { config: handlerConfig, handler: this.viewNewSession })
+        this.router.post('/magic/new-session', { config: handlerConfig, handler: this.initNewSession })
         // TODO acccount activation and TOS signing etc
-        // this.router.get('/magic/confirm-account', this.viewConfirmAccount)
-        // this.router.post('/magic/confirm-account', this.confirmAccount)
+        this.router.get('/magic/confirm-account', { config: handlerConfig, handler: this.viewConfirmAccount })
+        this.router.post('/magic/confirm-account', { config: handlerConfig, handler: this.confirmAccount })
     }
 
     viewNewSession = async (ctx: HexiContext, req: HexiRequest): Promise<HexiReply<string>> => {
@@ -38,13 +41,13 @@ export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
         }
     }
 
-    initNewSession = async (ctx: HexiContext, req: HexiRequest<{ pem: string }>): Promise<HexiReply<string>> => {
+    initNewSession = async (ctx: HexiContext, req: HexiRequest<{ username: string, pem: string }>): Promise<HexiReply<string>> => {
         const referenceKey = new Sha256().update(req.body.pem).toString()
         let account = await ctx.registry.Account.find('reference_key', referenceKey)
         if (!account) {
             account = await ctx.registry.Account.create({
                 kind: 'rsa-identity',
-                contact: 'test@email.com',
+                contact: { username: req.body.username, email: '@' },
                 reference_key: referenceKey,
                 reference_source: req.body.pem,
                 confirmed: false,
@@ -55,13 +58,19 @@ export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
         crypto.getRandomValues(tokenValues)
         const token = tokenValues.reduce((memo, i) => memo + `0${i.toString(16)}`.slice(-2), '')
 
-        const session = await ctx.registry.Session.create({
+        // TODO findOrCreate with expired logic
+        await ctx.registry.Session.create({
             account,
             token,
         }) as any
 
+        const rbac = await ctx.registry.OrganizationRoleBinding.find('account', account)
+        const url = rbac
+            ? `http://localhost:8000/`
+            : `http://localhost:8000/auth/magic/confirm-account`
+
         const publicKey = RSA.parseKey(req.body.pem)
-        const secret = JSON.stringify({ token, url: `http://localhost:8000/?token=${token}` }, null, '\t')
+        const secret = JSON.stringify({ token, url }, null, '\t')
         const cipher = await new RSA(publicKey).encrypt(secret, {
             hash: 'sha1',
             padding: 'pkcs1',
@@ -75,6 +84,76 @@ export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
                 <pre> echo '${cipher.base64()}' | base64 --decode | openssl rsautl -decrypt -inkey private.pem </pre>
             `,
             type: 'html',
+        }
+    }
+
+    viewConfirmAccount = async (_ctx: HexiContext, _req: HexiRequest<{ pem: string }>): Promise<HexiReply<string>> => {
+        return {
+            body: await Deno.readTextFile('magic-confirm.html'),
+            type: 'html',
+        }
+    }
+
+    confirmAccount = async (ctx: HexiContext, req: HexiRequest<{ token: string, response: 'accepted' | 'denied' }>): Promise<HexiReply<any>> => {
+        if (req.body.response !== 'accepted') {
+            return {
+                body: 'Account Not Confirmed',
+                http: {
+                    action: 'not-found', // TODO
+                },
+            }
+        }
+
+        const session = await ctx.registry.Session.find('token', req.body.token) as any
+        if (!session) {
+            ctx.logger('Session not found on attempt to confirm account')
+            return {
+                body: 'Confirmation Not Found',
+                http: {
+                    action: 'not-found',
+                },
+            }
+        }
+
+        const account = await ctx.registry.Account.get(session.account.id) as any
+        if (!account) {
+            ctx.logger(`Account '${session.account.id}' not found on attempt to confirm account from session '${session.id}'`)
+            return {
+                body: 'Confirmation Not Found',
+                http: {
+                    action: 'not-found',
+                },
+            }
+        }
+
+        if (account.confirmed) {
+            return {
+                body: 'Already Registered',
+                http: {
+                    action: 'redirect',
+                    url: 'http://localhost:8000',
+                }
+            }
+        }
+
+        await ctx.registry.Account.update(account, { confirmed: new Date().toISOString() })
+
+        const organization = await ctx.registry.Organization.create({
+            kind: 'rsa',
+            remote_id: account.reference_key,
+            name: account.contact.username,
+        })
+
+        const rbac = await ctx.registry.OrganizationRoleBinding.create({
+            organization,
+            account,
+        })
+
+        return {
+            body: {
+                rbac,
+                organization,
+            },
         }
     }
 

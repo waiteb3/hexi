@@ -18,6 +18,7 @@ export type HexiContext<C = {}> = {
     logger: (...args: any[]) => Promise<boolean | void>
     registry: { [model: string]: Registry }
     config: C
+    account?: any
 }
 
 export type HexiRequest<T = {}> = {
@@ -39,4 +40,11 @@ export type HexiReply<T = {}> = {
     type?: 'json' | 'html'
 }
 
-export type PluginHandler<C = {}, R = {}, T = {}> = (ctx: HexiContext<C>, request: HexiRequest<R>) => Promise<HexiReply<T>>
+export type HandlerConfig = {
+    public?: boolean
+}
+
+export type PluginHandler<C = {}, R = {}, T = {}> = {
+    config?: HandlerConfig
+    handler: (ctx: HexiContext<C>, request: HexiRequest<R>) => Promise<HexiReply<T>>
+}

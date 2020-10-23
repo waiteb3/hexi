@@ -7,7 +7,7 @@ import {
 
 import { defaults, Ref } from './models.ts'
 import { Registry } from './registry.ts'
-import { AppTree, PluginHandler, HexiReply, HexiContext, HexiRequest } from './server.ts'
+import { AppTree, PluginHandler, HexiReply, HexiContext, HexiRequest, HandlerConfig } from './server.ts'
 import { Router } from './router.ts'
 
 function banner(hostname: string) {
@@ -41,18 +41,18 @@ export default class Hexi<C> {
         this.registry = {}
         this.resolvers = {}
 
-        this.router = new Router(this.notFound)
+        this.router = new Router({ handler: this.notFound })
         this.router.use('/auth', this.app.server.secrets.auth.router)
 
-        this.router.get('/', this.graphiql)
-        this.router.post('/', this.graphql)
+        this.router.get('/', { handler: this.graphiql })
+        this.router.post('/', { handler: this.graphiql })
 
-        this.router.get('/favicon.ico', async() => {
+        this.router.get('/favicon.ico', { async handler() {
             return {
                 body: 'todo',
                 status: 500,
             }
-        })
+        }})
 
         for (const name in defaults) {
             this.registry[name] = new Registry(name, defaults[name])
@@ -142,6 +142,38 @@ export default class Hexi<C> {
         }
     }
 
+    async authorize(request: ServerRequest, config?: HandlerConfig) {
+        if (config && config.public) {
+            return {
+                id: '',
+                kind: 'public',
+                confirmed: false,
+                permission: 'deny:organization:*',
+            }
+        }
+
+        const token = request.headers.get('authorization')
+        if (!token) {
+            return null
+        }
+
+        const session = await this.registry.Session.find('token', token) as any | null
+        if (!session) {
+            return null
+        }
+
+        const rbac = await this.registry.OrganizationRoleBinding.get(session.account.id) as any
+        if (!rbac) {
+            return null
+        }
+
+        const account = await this.registry.Account.get(session.account.id) as any
+        return {
+            ...account,
+            permission: `${rbac ? rbac.role : 'admin'}:organization:${rbac.organization.id}`,
+        }
+    }
+
     private async handle(request: ServerRequest) {
         const [path, query] = request.url.split('?', 2)
         const queryParams = new URLSearchParams(query || '')
@@ -166,30 +198,21 @@ export default class Hexi<C> {
             },
             registry: this.registry,
             config: {},
+            account: undefined,
         }
         const requestID = Math.random().toString().split('.')[1]
         ctx.logger(`Request=${requestID} in context=${path + ':' + methodName}`)
 
-        // if (this.app.common.middleware) {
-        //     for (const middleware of this.app.common.middleware) {
-        //         ctx = await middleware(ctx, request)
-        //     }
-        // }
-
-        // if (this.app.common.hooks) {
-        //     for (const hook of this.app.common.hooks) {
-        //         await hook(ctx, request, response)
-        //     }
-        // }
         const bodyBytes = request.contentLength && request.contentLength > 0 ? await Deno.readAll(request.body) : null
         const bodyRaw = bodyBytes ? decoder.decode(bodyBytes) : null
-        console.log(bodyRaw)
 
         const requestedType = request.headers.get('content-type') || request.headers.get('accept')
         const body = bodyRaw && requestedType?.includes('application/json') ? JSON.parse(bodyRaw) : bodyRaw
 
         // TODO need to think through handling completeness but a failure in a post step
-        const handler = this.router.match(path, methodName)
+        const { handler, config } = this.router.match(path, methodName)
+
+        ctx.account = await this.authorize(request, config)
 
         const reply = await handler(ctx, { body, params: queryParams })
         const headers = new Headers( [['X-Request-ID', requestID]] )

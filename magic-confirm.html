@@ -1,0 +1,40 @@
+<html>
+    <body>
+        By Confirming Account Creation, you agree to the Terms of Service for this application.
+        <form onsubmit="sendconfirm(event)">
+            <p id="error"></p>
+            <label>Token <input id="token-input"></textarea></label>
+            <button type="submit">I Agree to the Terms of Service</button>
+        </form>
+        <script>
+            function sendconfirm(event) {
+                event.preventDefault()
+
+                const token = document.querySelector("#token-input")
+                const error = document.querySelector("#error")
+                const instructions = document.querySelector("#instructions")
+                if (!token || !token.value) {
+                    return false
+                }
+                fetch(document.location.toString(), {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        token: token.value,
+                        response: 'accepted',
+                    }),
+                    headers: new Headers({ 'content-type': 'application/json' }),
+                }).then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error(response.statusText)
+                    }
+                    const response = await response.json()
+
+                }).catch((err) => {
+                    error.innerHTML = err.toString()
+                    error.style.visibility = 'default'
+                })
+                return false
+            }
+        </script>
+    </body>
+</html>

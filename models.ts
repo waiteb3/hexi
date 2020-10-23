@@ -10,26 +10,41 @@ export interface FieldModifier<S, P, D> {
     data: D
     load(stored: S): Promise<P>
     store(pre: P): Promise<S>
+    name: string
 }
 
-const StorageEncryptor: FieldModifier<string, string, { key: string }> = {
+const EncryptedStorage: FieldModifier<string, string, { key: string }> = {
+    name: 'EncryptedStorage',
     data: {
         // TODO configurable, cloud KMSes
         key: '<encrypted>',
     },
 
     async load(stored: string) {
-        return stored.slice(this.data.key.length + 1)
+        return stored && stored.slice(this.data.key.length + 1)
     },
 
     async store(pre: string) {
-        return `${this.data.key}:${pre}`
+        return pre && `${this.data.key}:${pre}`
     }
+}
+
+const JSONMapper: FieldModifier<string, any, null> =  {
+    name: 'JSONMapper', // TODO annotation?
+    data: null,
+
+    async load(stored: string) {
+        return stored && JSON.parse(stored)
+    },
+
+    async store(pre: any) {
+        return pre && JSON.stringify(pre)
+    },
 }
 
 export type ModelField = {
     kind?: 'field'
-    type: 'text' | 'blob' | 'int' | 'decimal' | 'datetime' | 'boolean'
+    type: 'text' | 'blob' | 'int' | 'decimal' | 'datetime' | 'timestamp'
     validation?: Validation[]
     modifiers?: FieldModifier<unknown, unknown, unknown>[]
 } | {
@@ -54,15 +69,13 @@ export type StorageFieldTypes = {
 } | {
     storageType: 'decimal'
     apiType: 'Float'
-} | {
-    storageType: 'boolean',
-    apiType: 'Boolean',
 }
 
 // TODO instead of ref, have special columms like Creator, etc, that pull from assumed metadata
 export type StorageField = (StorageFieldTypes & {
     kind: 'column'
     name: string
+    modifiers?: FieldModifier<any, any, any>[]
 }) | {
     kind: 'ref'
     name: string
@@ -84,7 +97,7 @@ export const defaults: { [name: string]: Model } = {
             },
             token: {
                 type: 'text',
-                modifiers: [StorageEncryptor],
+                modifiers: [EncryptedStorage],
             },
         },
     },
@@ -102,6 +115,7 @@ export const defaults: { [name: string]: Model } = {
             },
         },
     },
+    // credential & auth set
     Account: {
         kind: 'private',
         fields: {
@@ -110,7 +124,7 @@ export const defaults: { [name: string]: Model } = {
             },
             contact: {
                 type: 'text',
-                modifiers: [StorageEncryptor],
+                modifiers: [JSONMapper, EncryptedStorage],
             },
             // TODO private fields
             reference_key: {
@@ -118,10 +132,10 @@ export const defaults: { [name: string]: Model } = {
             },
             reference_source: {
                 type: 'text',
-                modifiers: [StorageEncryptor],
+                modifiers: [EncryptedStorage],
             },
             confirmed: {
-                type: 'boolean',
+                type: 'timestamp',
             },
         }
     },
@@ -138,7 +152,6 @@ export const defaults: { [name: string]: Model } = {
             // TODO consider switching to a list of actions as a proper array
         }
     },
-    // TODO account<->org<->role
     OrganizationRoleBinding: {
         kind: 'private',
         fields: {
