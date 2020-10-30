@@ -42,7 +42,10 @@ export default class Hexi<C> {
         this.resolvers = {}
 
         this.router = new Router({ handler: this.notFound })
-        this.router.use('/auth', this.app.server.secrets.auth.router)
+        for (const name in this.app.server.secrets.auth) {
+            const auth = this.app.server.secrets.auth[name]
+            this.router.use('/auth', auth.router)
+        }
 
         this.router.get('/', { handler: this.graphiql })
         this.router.post('/', { handler: this.graphiql })
@@ -197,7 +200,7 @@ export default class Hexi<C> {
                 console.log(args)
             },
             registry: this.registry,
-            config: {},
+            config: this.app.config,
             account: undefined,
         }
         const requestID = Math.random().toString().split('.')[1]

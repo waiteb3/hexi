@@ -66,8 +66,8 @@ export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
 
         const rbac = await ctx.registry.OrganizationRoleBinding.find('account', account)
         const url = rbac
-            ? `http://localhost:8000/`
-            : `http://localhost:8000/auth/magic/confirm-account`
+            ? ctx.config.domain
+            : `${ctx.config.domain}/auth/magic/confirm-account`
 
         const publicKey = RSA.parseKey(req.body.pem)
         const secret = JSON.stringify({ token, url }, null, '\t')
@@ -131,7 +131,7 @@ export class MagicAuth implements Auth<Handler, MagicAuthConfig> {
                 body: 'Already Registered',
                 http: {
                     action: 'redirect',
-                    url: 'http://localhost:8000',
+                    url: '${ctx.domain}',
                 }
             }
         }

@@ -23,7 +23,7 @@
       const params = new URLSearchParams(location.search)
       const token = params.get('token') || prompt('Session Token')
       const graphQLFetcher = graphQLParams =>
-        fetch('http://localhost:8000/', {
+        fetch(document.location.toString(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
           body: JSON.stringify(graphQLParams),

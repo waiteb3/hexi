@@ -45,7 +45,7 @@
         //     console.log(user.data)
         //     console.log(Array.from(user.response.headers.entries()))
 
-        //     const root = `http://localhost:8000/?token=${authorization.data.access_token}`
+        //     const root = `${ctx.config.domain}/?token=${authorization.data.access_token}`
         //     console.log(root)
 
         //     await request.respond({

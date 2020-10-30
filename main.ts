@@ -39,12 +39,20 @@ const server = new Hexi({
             port: 8000,
         },
         secrets: {
-            auth: new MagicAuth({ mode: 'rsa' }) /*new GithubAppAuth({
-                client_id: Deno.env.get('GITHUB_APP_CLIENT_ID') || '',
-                client_secret: Deno.env.get('GITHUB_APP_CLIENT_SECRET') || '',
-                token,
-            }),*/
+            auth: {
+                magic: new MagicAuth({ mode: 'rsa' }),
+                github: new GithubAppAuth({
+                    client_id: Deno.env.get('GITHUB_APP_CLIENT_ID') || '',
+                    client_secret: Deno.env.get('GITHUB_APP_CLIENT_SECRET') || '',
+                    token,
+                }),
+                // oauth: new OAuthMulti()
+            },
         },
+    },
+    config: {
+        domain: 'http://localhost:8000',
+        misc: {},
     },
     objects: {
         // TODO enforce things

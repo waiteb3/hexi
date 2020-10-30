@@ -3,7 +3,12 @@ import { Auth } from './auth/auth.ts'
 import { Registry } from "./registry.ts"
 
 interface Secrets {
-    auth: Auth<any, any>
+    auth: { [key: string]: Auth<any, any> }
+}
+
+export interface AppConfig<C> {
+    domain: string
+    misc: C
 }
 
 export interface AppTree<C> {
@@ -11,13 +16,14 @@ export interface AppTree<C> {
         listen: Deno.ListenOptions | Deno.ListenTlsOptions
         secrets: Secrets
     }
+    config: AppConfig<C>
     objects: { [name: string]: Model }
 }
 
 export type HexiContext<C = {}> = {
     logger: (...args: any[]) => Promise<boolean | void>
     registry: { [model: string]: Registry }
-    config: C
+    config: AppConfig<C>
     account?: any
 }
 
