@@ -1,0 +1,84 @@
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..2003494
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,17 @@
++FROM ubuntu:18.04
++
++RUN apt update && apt install curl unzip -y -q
++
++ENV DENO_INSTALL /usr/local
++RUN curl -fsSL https://deno.land/x/install/install.sh | sh -s v1.4.0
++
++RUN useradd -m -u 1000 -U -s /bin/sh deno
++USER deno
++
++COPY . /app
++
++WORKDIR /app
++
++EXPOSE 80 443
++
++CMD deno
+diff --git a/release.yaml b/release.yaml
+new file mode 100644
+index 0000000..c8e290f
+--- /dev/null
++++ b/release.yaml
+@@ -0,0 +1,55 @@
++---
++apiVersion: v1
++kind: Service
++metadata:
++  name: hexi
++  namespace: default
++spec:
++  selector:
++    app: hexi
++  ports:
++    - protocol: TCP
++      port: 80
++---
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: hexi
++  namespace: default
++spec:
++  selector:
++    matchLabels:
++      app: hexi
++  template:
++    metadata:
++      labels:
++        app: hexi
++    spec:
++      containers:
++      - name: hexi
++        image: localhost:32000/hexi
++        ports:
++        - containerPort: 80
++---
++apiVersion: gitkube.sh/v1alpha1
++kind: Remote
++metadata:
++  name: hexi
++  namespace: default
++spec:
++# Insert ssh-keys for allowing users to git push
++  authorizedKeys:
++  - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCpFdrPdZ6lzZjL8FyPpzhMaDqGPUvkJQ4KkiXAgQLlMZoe0EncVRoqAxXHfllpmd9KtPPCBr4MOIUdX4+XcGeiw8ppYpEQYzKAvbqyCGvnddmENA+I9/8zKm/jDiFVMM0RUiUlVQtTgOE3c0n9dlkYU2SBD9XgAQCs+qwIEj0KkZYa/YlTudyII3KWIFekNVrD614moVrTgL7nwfdTlTuF8I6vS7NuyFFAhfJINkgz07LdQGvyntmXzi8VjWsspgPBojS/1YryZc5j3a1S8D8ge1J09mM3jV+a4VIRt4VHnm2aBHTcNS3uue5u/42LN+2nO+YEyoMKg3X+wTxbA1Z683ihpc6lRA9zOyzYgFNG6lIg1aJNMOCvnf+JCtyEo5W3BFsnqVYnk323aTP2EPK28ufNCoZrRzsvJ4J4WoO5atsyawaMwObL40ALlBrzZNYu+6Zv4mhSlX1f/Ib5pO3OA8ZiN++621CeM6fcHiTcEgJvwB+SzwyCq33o4xCpg2PnZhIG1t/fJp7qjet0zVwZGz/s+aZxDwmsXQjkbBpL4ITrh7W4ZdKKwUzhne0u7ptl69yFQ0x+AwuOadiVVpGTH5OV+irZXxvJxd7WhmzrZM1+oP9B1k7j0zsHZ7liNOFoKZrqGdaOk7T+XJlZO+acAPMRQfRnn0NvUkU84s5EIw== brandon@bisontrails.co"
++  - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDW/+CiwoUIEqY88Zhq7GSG6zT3xftxiN63XSW3lSTEFc+mIKrhjr3gOswFyZm/yoksqOsMQqmP9Ne4otBMyyWLlK0wthx40+br04fzsKeNV3AxIY7hMr4eJzqhlw8Xr0z5OwffKDobEcD5BmeXbScgwbQFzGlaZAJIjC/lmOfxYvMoT4QCH7fXK6kKqyMQRsIzzXBDDn0CkShP187iqLdhTyf+lYyZdUYXj6ad/4hoWqYR0ypm1pMkZQHv+wQldftcsiUvtUJax5JLqdMPmsjtf2ynRQ47b8sRPoRXM7lkKxtx6HLqyBkXQ3qbjl5ChdLTgD9wYEi0viUFLsqqASl5 server@ubuntu"
++
++# Provide registry details: https://github.com/hasura/gitkube/blob/master/docs/registry.md
++  registry:
++    url: "localhost:32000"
++
++# Define deployment rules
++  deployments:
++  - name: hexi                             # Name of K8s deployment which is updated on git push
++    containers:
++    - name: hexi                           # Name of container in the deployment which is built during git push
++      path: .                   # Docker build context path in the git repo
++      dockerfile: Dockerfile  # Location of Dockerfile for the source code

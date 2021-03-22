@@ -6,9 +6,8 @@ interface Secrets {
     auth: { [key: string]: Auth<any, any> }
 }
 
-export interface AppConfig<C> {
+export interface AppConfig {
     domain: string
-    misc: C
 }
 
 export interface AppTree<C> {
@@ -16,14 +15,14 @@ export interface AppTree<C> {
         listen: Deno.ListenOptions | Deno.ListenTlsOptions
         secrets: Secrets
     }
-    config: AppConfig<C>
+    config: AppConfig & C
     objects: { [name: string]: Model }
 }
 
 export type HexiContext<C = {}> = {
     logger: (...args: any[]) => Promise<boolean | void>
     registry: { [model: string]: Registry }
-    config: AppConfig<C>
+    config: AppConfig & C
     account?: any
 }
 

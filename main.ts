@@ -52,7 +52,6 @@ const server = new Hexi({
     },
     config: {
         domain: 'http://localhost:8000',
-        misc: {},
     },
     objects: {
         // TODO enforce things

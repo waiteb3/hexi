@@ -1,5 +1,9 @@
 {
   "deno.enable": true,
   "typescript.preferences.quoteStyle": "single",
-  "typescript.format.semicolons": "remove"
+  "typescript.format.semicolons": "remove",
+  "deno.unstable": true,
+  "deno.import_intellisense_origins": {
+    "https://deno.land": true
+  }
 }
