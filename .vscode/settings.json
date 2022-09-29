@@ -1,5 +1,9 @@
 {
   "deno.enable": true,
+  "lldb.verboseLogging": true,
+  "search.exclude": {
+      "**/target": true
+  },
   "typescript.preferences.quoteStyle": "single",
   "typescript.format.semicolons": "remove"
 }
